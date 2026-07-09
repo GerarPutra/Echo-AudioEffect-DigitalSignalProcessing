@@ -9,7 +9,8 @@ deviceWriter = audioDeviceWriter('SampleRate', fileReader.SampleRate);
 
 fs = fileReader.SampleRate;
 delayTimeSec = 0.4;
-feedbackGain = 0.5; 
+feedbackGain = 0.5;
+dryWetMix = 0.5; 
 
 delayObj = dsp.Delay('Length', round(delayTimeSec * fs));
 
@@ -24,15 +25,17 @@ scope = timescope( ...
     'YLimits', [-1, 1], ...
     'ShowGrid', true, ...
     'ShowLegend', true, ...
-    'Title', 'Echo Effect (Delay + Feedback)', ...
+    'Title', 'Echo Effect', ...
     'ChannelNames', {'Echo Output', 'Original'});
-fig = figure('Name', 'Parameter Tuner', 'Position', [100, 100, 350, 320], ...
+
+fig = figure('Name', 'Echo Parameter Tuner', 'Position', [100, 100, 350, 320], ...
     'Color', [0.94, 0.94, 0.94]);
 
 paramList = {
-    'delayTimeSec', 0.4, 0, 1;
-    'feedbackGain', 0.5, 0, 1
-    };
+    'delayTimeSec', 0.4, 0.05, 2.0;
+    'feedbackGain', 0.5, 0, 0.95;
+    'dryWetMix', 0.5, 0, 1
+};
 
 yPos = 270;
 for i = 1:size(paramList, 1)
@@ -57,25 +60,31 @@ for i = 1:size(paramList, 1)
 end
 
 function onSliderChange(hSlider, hEdit, paramName)
-val = get(hSlider, 'Value');
-set(hEdit, 'String', sprintf('%.4f', val));
-applyParameter(paramName, val);
+    val = get(hSlider, 'Value');
+    set(hEdit, 'String', sprintf('%.4f', val));
+    applyParameter(paramName, val);
 end
 
 function onEditChange(hEdit, hSlider, paramName)
-val = str2double(get(hEdit, 'String'));
-if ~isnan(val)
-    set(hSlider, 'Value', val);
-    applyParameter(paramName, val);
+    val = str2double(get(hEdit, 'String'));
+    if ~isnan(val)
+        set(hSlider, 'Value', val);
+        applyParameter(paramName, val);
     end
 end
 
 function applyParameter(name, value)
-switch name
-    case 'delayTimeSec'
-        delayObj.delayTimeSec = value;
+    switch name
+        case 'delayTimeSec'
+            newLength = max(round(value * fs), 1);
+            delayObj.Length = newLength;
+        case 'feedbackGain'
+            feedbackGain = value;
+        case 'dryWetMix'
+            dryWetMix = value;
     end
 end 
+
 
 while ~isDone(fileReader)
     audioIn = fileReader();
@@ -83,13 +92,13 @@ while ~isDone(fileReader)
     audioOut = zeros(size(audioIn));
 
     for i = 1:frameLength
-        inputToDelay = audioIn(i) + (feedbackGain * prevOutput);
-
-        delayedSignal = delayObj(inputToDelay);
-
-        audioOut(i) = delayedSignal;
-
-        prevOutput = delayedSignal; 
+        delayedSignal = delayObj(audioIn(i));
+        
+        inputToDelay = audioIn(i) + (feedbackGain * delayedSignal);
+        
+        delayObj(inputToDelay);
+        
+        audioOut(i) = (1 - dryWetMix) * audioIn(i) + dryWetMix * delayedSignal;
     end
 
     deviceWriter(audioOut);
